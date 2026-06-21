@@ -1,54 +1,25 @@
-\# Arquitectura Cloud del Proyecto
+# Arquitectura Cloud del Proyecto
 
+## Componentes
 
+- **Python (local):** scripts de ETL y clustering ejecutados en Anaconda (entorno base). Procesan los datasets originales, ejecutan MiniBatchKMeans y generan el CSV con la asignación de clústeres.
 
-\## Componentes
+- **Cloud Storage:** bucket `tfm-segmentacion-datos` en el proyecto `tfm-segmentacion-riesgo`. Recibe el CSV segmentado como capa de staging.
 
+- **BigQuery:** dataset `cartera_riesgo`, tabla `clientes_segmentados` (604,129 registros, 22 columnas). Funciona como data warehouse para consumo desde Power BI.
 
+- **Power BI Service:** conectado a BigQuery con conector nativo. Dashboard de 4 páginas (Vista General, Perfil de Riesgo, Gestión de Cobranzas, Cartera Vigente) con modelo dimensional en estrella.
 
-1\. Python (local): Scripts de ETL y clustering ejecutados en Anaconda
+## Flujo de datos
 
-&#x20;  (entorno base). Procesan los datasets originales, ejecutan MiniBatchKMeans
-
-&#x20;  y generan el archivo de resultados con la asignación de clusters.
-
-
-
-2\. GCP Cloud Storage: Bucket tfm-segmentacion-datos en el proyecto
-
-&#x20;  tfm-segmentacion-riesgo. Recibe el archivo CSV con los datos segmentados
-
-&#x20;  como capa de staging.
-
-
-
-3\. Google BigQuery: Dataset cartera\_riesgo, tabla clientes\_segmentados
-
-&#x20;  (604,129 registros, 22 columnas). Actua como data warehouse para el
-
-&#x20;  consumo analitico.
-
-
-
-4\. Power BI Service: Conectado a BigQuery mediante conector nativo.
-
-&#x20;  Dashboard de 4 paginas (Vista General, Perfil de Riesgo, Gestion de
-
-&#x20;  Cobranzas, Cartera Vigente) con modelo dimensional en estrella.
-
-
-
-\## Flujo de datos
-
-
-
+```
 Datasets originales (TXT)
+  → [01_eda_cartera.py] Análisis exploratorio
+  → [02_preprocesamiento_clustering.py] Limpieza + MiniBatchKMeans (k=4)
+  → [03_carga_gcp.py] Carga a Cloud Storage y BigQuery
+  → Power BI Service (dashboard)
+```
 
-&#x20; > \[01\_eda\_cartera.py] Analisis exploratorio
+## Credenciales
 
-&#x20; > \[02\_preprocesamiento\_clustering.py] Limpieza + MiniBatchKMeans (k=4)
-
-&#x20; > \[03\_carga\_gcp.py] Carga a Cloud Storage y BigQuery
-
-&#x20; > \[conector DirectQuery] Power BI Service (dashboard)
-
+Cuenta de servicio `tfm-pipeline` con roles BigQuery Job User, BigQuery Data Editor y Storage Object Admin. El JSON de credenciales no está en el repositorio (excluido por `.gitignore`).
