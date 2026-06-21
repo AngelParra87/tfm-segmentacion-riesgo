@@ -1,88 +1,46 @@
-# \# Segmentación de Clientes según Perfil de Riesgo
+# Segmentación de Clientes según Perfil de Riesgo
 
-# 
+Trabajo Fin de Máster — Máster Universitario en Análisis y Visualización de Datos Masivos / Visual Analytics & Big Data, UNIR.
 
-# Trabajo Fin de Máster — Máster Universitario en Análisis y Visualización
+## Qué hace
 
-# de Datos Masivos / Visual Analytics \& Big Data, UNIR.
+Segmenta clientes con créditos activos de una entidad financiera peruana en cuatro perfiles de riesgo usando MiniBatchKMeans. Los resultados se cargan en BigQuery y se visualizan en un dashboard de Power BI Service.
 
-# 
+## Arquitectura
 
-# \## Descripción
+```
+Python (ETL + clustering) → GCP Cloud Storage → BigQuery → Power BI Service
+```
 
-# 
+Ver `docs/arquitectura_gcp.md` para más detalle.
 
-# Sistema de segmentación de clientes con créditos activos en una entidad
+## Scripts
 
-# financiera peruana, utilizando aprendizaje no supervisado (MiniBatchKMeans)
+| Script | Descripción |
+|--------|-------------|
+| `scripts/01_eda_cartera.py` | Carga de datos y análisis exploratorio |
+| `scripts/02_preprocesamiento_clustering.py` | Preprocesamiento, winsorización, escalado y clustering (MiniBatchKMeans, k=4) |
+| `scripts/03_carga_gcp.py` | Carga de resultados a Cloud Storage y BigQuery |
 
-# para clasificar clientes según su perfil de riesgo crediticio. Los resultados
+## Ejecución
 
-# se despliegan en un dashboard interactivo construido en Power BI Service.
+Los scripts se ejecutan en orden desde Anaconda Prompt con el entorno base:
 
-# 
+```bash
+python scripts/01_eda_cartera.py
+python scripts/02_preprocesamiento_clustering.py
+python scripts/03_carga_gcp.py
+```
 
-# \## Arquitectura
+Dependencias: `pandas`, `numpy`, `scikit-learn`, `matplotlib`, `seaborn`, `google-cloud-storage`, `google-cloud-bigquery`, `pyarrow`.
 
-# 
+## Datos
 
-# Python (ETL + clustering) → GCP Cloud Storage → BigQuery → Power BI Service
+Los datasets provienen de una entidad financiera (cartera propia + RCC-SBS, noviembre 2024). Son datos anonimizados y no están incluidos en el repositorio. El `.gitignore` excluye archivos de datos y credenciales.
 
-# 
+## Autores
 
-# \## Estructura del repositorio
+- Flores Mamani, Lourdes Marylyn
+- Parra Florecin, Angel Raul
 
-# 
-
-# \- `scripts/01\_eda\_cartera.py` — Análisis exploratorio de datos
-
-# \- `scripts/02\_preprocesamiento\_clustering.py` — Preprocesamiento,
-
-# &#x20; transformación y ejecución del modelo de clustering (MiniBatchKMeans, k=4)
-
-# \- `scripts/03\_carga\_gcp.py` — Carga de resultados a GCP Cloud Storage
-
-# &#x20; y BigQuery
-
-# \- `docs/arquitectura\_gcp.md` — Descripción de la arquitectura cloud
-
-# 
-
-# \## Datos
-
-# 
-
-# Los datos utilizados corresponden a registros anonimizados de una entidad
-
-# financiera y no se incluyen en el repositorio por razones de confidencialidad,
-
-# en cumplimiento de la Ley N.° 29733 de Protección de Datos Personales del Perú.
-
-# 
-
-# \## Tecnologías
-
-# 
-
-# \- Python 3.x (pandas, scikit-learn, matplotlib, seaborn)
-
-# \- Google Cloud Platform (Cloud Storage, BigQuery)
-
-# \- Power BI Service
-
-# \- MiniBatchKMeans (scikit-learn)
-
-# 
-
-# \## Autores
-
-# 
-
-# \- Flores Mamani, Lourdes Marylyn
-
-# \- Parra Florecin, Angel Raul
-
-# 
-
-# Director: Javier Escobar Ortiz
-
+Director: Javier Escobar Ortiz
