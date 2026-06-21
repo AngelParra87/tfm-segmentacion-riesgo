@@ -1,6 +1,6 @@
 """
-TFM - Segmentación de Clientes con Créditos Activos según Perfil de Riesgo
-Etapa 2: Preprocesamiento y Clustering
+02_preprocesamiento_clustering.py - Preprocesamiento y clustering
+TFM: Segmentación de Clientes según Perfil de Riesgo
 Autores: Lourdes Flores Mamani / Angel Parra Florecin
 Dataset: grf10_1124_cod.txt + grf10_1124_rcc.txt
 Periodo: Noviembre 2024
@@ -19,9 +19,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-# ─────────────────────────────────────────────
-# 0. CONFIGURACIÓN DE RUTAS
-# ─────────────────────────────────────────────
+# --- Rutas ---
 DATA_DIR   = Path(r"C:\ANGEL\UNIR\TFM 2026\Data")
 OUTPUT_DIR = Path(r"C:\ANGEL\UNIR\TFM 2026\Data\outputs\clustering")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -31,14 +29,14 @@ RCC_FILE = DATA_DIR / "grf10_1124_rcc.txt"
 
 RANDOM_STATE = 42
 
-# ─────────────────────────────────────────────
+# =============================================
 # 1. CARGA DE DATOS
-# ─────────────────────────────────────────────
+# =============================================
 print("=" * 60)
 print("ETAPA 2 — PREPROCESAMIENTO Y CLUSTERING")
 print("=" * 60)
 
-print("\n[1/8] Cargando datasets...")
+print("\nCargando datasets...")
 
 NUMERIC_COLS_COD = [
     "DS_MORA", "NCUOTAS_VEN", "SABONO_PROM",
@@ -65,23 +63,22 @@ df_rcc["saldo"]        = pd.to_numeric(df_rcc["saldo"], errors="coerce")
 df_rcc["CLASIF_EMP"]   = pd.to_numeric(df_rcc["CLASIF_EMP"], errors="coerce")
 df_rcc["cod_cliente_sbs"] = df_rcc["cod_cliente_sbs"].astype(str).str.strip()
 
-print(f"  COD cargado: {df_cod.shape[0]:,} filas")
-print(f"  RCC cargado: {df_rcc.shape[0]:,} filas")
+print(f"  COD: {df_cod.shape[0]:,} filas")
+print(f"  RCC: {df_rcc.shape[0]:,} filas")
 
-# ─────────────────────────────────────────────
+# =============================================
 # 2. FEATURE ENGINEERING — RCC
-#    clasif_rcc_max: peor calificación que
-#    cualquier entidad externa le asignó al cliente
-# ─────────────────────────────────────────────
-print("\n[2/8] Feature engineering RCC...")
+# =============================================
+print("\nFeature engineering RCC...")
 
+# Agregar por cliente: peor calificación, deuda total, nro entidades
 rcc_agg = (
     df_rcc
     .groupby("cod_cliente_sbs")
     .agg(
-        clasif_rcc_max  = ("CLASIF_EMP", "max"),   # peor calificación externa
-        saldo_rcc_total = ("saldo", "sum"),          # deuda total en el sistema
-        n_entidades     = ("entidad_financiera", "nunique"),  # nro entidades con deuda
+        clasif_rcc_max  = ("CLASIF_EMP", "max"),
+        saldo_rcc_total = ("saldo", "sum"),
+        n_entidades     = ("entidad_financiera", "nunique"),
     )
     .reset_index()
     .rename(columns={"cod_cliente_sbs": "CLIENTE"})
@@ -89,100 +86,90 @@ rcc_agg = (
 
 print(f"  Clientes con RCC: {len(rcc_agg):,}")
 
-# ─────────────────────────────────────────────
+# =============================================
 # 3. MERGE COD + RCC
-# ─────────────────────────────────────────────
-print("\n[3/8] Merge COD + RCC...")
+# =============================================
+print("\nMerge COD + RCC...")
 
 df = df_cod.merge(rcc_agg, on="CLIENTE", how="left")
 
-# Clientes sin RCC → clasif_rcc_max = 0 (sin deuda externa registrada)
+# Sin RCC → clasif_rcc_max = 0
 df["clasif_rcc_max"]   = df["clasif_rcc_max"].fillna(0)
 df["saldo_rcc_total"]  = df["saldo_rcc_total"].fillna(0)
 df["n_entidades"]      = df["n_entidades"].fillna(0)
 
 print(f"  Dataset integrado: {df.shape[0]:,} filas")
 con_rcc = (df["saldo_rcc_total"] > 0).sum()
-print(f"  Clientes con deuda externa: {con_rcc:,} ({con_rcc/len(df)*100:.1f}%)")
+print(f"  Con deuda externa: {con_rcc:,} ({con_rcc/len(df)*100:.1f}%)")
 
-# ─────────────────────────────────────────────
-# 4. CODIFICACIÓN DE VARIABLES CATEGÓRICAS
-# ─────────────────────────────────────────────
-print("\n[4/8] Codificando variables categóricas...")
+# =============================================
+# 4. CODIFICACIÓN DE CATEGÓRICAS
+# =============================================
+print("\nCodificando variables categóricas...")
 
-# --- calf_sbs_nov24 → ordinal de riesgo ---
+# calf_sbs_nov24 → ordinal 1-5
 map_calf = {
     "2. NORMAL"      : 1,
     "3. CPP"         : 2,
     "4. DEFICIENTE"  : 3,
     "5. DUDOSO"      : 4,
     "6. PERDIDA"     : 5,
-    "1. NO DEFINIDO" : 1,  # tratar como normal
+    "1. NO DEFINIDO" : 1,
 }
 df["calf_sbs_nov24"] = (
     df["calf_sbs_nov24"]
     .astype(str).str.strip()
     .map(map_calf)
-    .fillna(1)  # nulos → NORMAL (moda)
+    .fillna(1)   # nulos → Normal (moda)
     .astype(int)
 )
 
-# --- BDSBOLSO → ordinal de estado del crédito ---
-map_bdsbolso = {
-    "ACT": 1,  # activo / al día
-    "REF": 2,  # refinanciado
-    "JUD": 3,  # judicial
-    "CAS": 4,  # castigado / pérdida
-}
+# BDSBOLSO → ordinal (solo para validación posterior, no entra al modelo)
+map_bdsbolso = {"ACT": 1, "REF": 2, "JUD": 3, "CAS": 4}
 df["BDSBOLSO_num"] = (
     df["BDSBOLSO"]
     .astype(str).str.strip()
     .map(map_bdsbolso)
-    .fillna(1)  # nulos → ACT
+    .fillna(1)
     .astype(int)
 )
 
 dist_bdsbolso = df["BDSBOLSO"].value_counts()
 print(f"  Distribución BDSBOLSO:\n{dist_bdsbolso.to_string()}")
 
-# ─────────────────────────────────────────────
-# 5. SELECCIÓN Y LIMPIEZA DE VARIABLES DE CLUSTERING
-# ─────────────────────────────────────────────
-print("\n[5/8] Preparando variables de clustering...")
+# =============================================
+# 5. VARIABLES DE CLUSTERING
+# =============================================
+print("\nPreparando variables de clustering...")
 
+# BDSBOLSO no entra al modelo: es la clasificación operativa del banco
+# y sesgaría el clustering hacia categorías ya existentes.
+# Se usa como validación externa (sección 10b).
 CLUSTER_VARS = [
-    "DS_MORA",        # días de mora
-    "NCUOTAS_VEN",    # cuotas vencidas
-    "SABONO_PROM",    # abono promedio mensual
-    "SDSBOLSO",       # deuda inicial
-    "SACTUAL",        # deuda actual (nov 2024)
-    "calf_sbs_nov24", # calificación SBS general (ordinal)
-    "clasif_rcc_max", # peor calificación externa RCC
-    # BDSBOLSO excluido del modelo: es una clasificación operativa interna
-    # preexistente. Incluirla introduciría información supervisada implícita
-    # en un modelo no supervisado, sesgando los resultados hacia la replicación
-    # de categorías ya asignadas por el banco. Se usa como variable de
-    # VALIDACIÓN EXTERNA en la sección 10b.
+    "DS_MORA",
+    "NCUOTAS_VEN",
+    "SABONO_PROM",
+    "SDSBOLSO",
+    "SACTUAL",
+    "calf_sbs_nov24",
+    "clasif_rcc_max",
 ]
 
-# BDSBOLSO se conserva en df_cluster solo para validación posterior
 df_cluster = df[["CLIENTE", "BDSBOLSO", "BDSBOLSO_num"] + CLUSTER_VARS].copy()
 
-# Verificar nulos antes de winsorización
+# Nulos residuales → mediana
 nulos_pre = df_cluster[CLUSTER_VARS].isnull().sum()
 print(f"  Nulos por variable:\n{nulos_pre[nulos_pre > 0].to_string()}")
 
-# Imputar nulos residuales con la mediana
 for col in CLUSTER_VARS:
     if df_cluster[col].isnull().sum() > 0:
         mediana = df_cluster[col].median()
         df_cluster[col] = df_cluster[col].fillna(mediana)
-        print(f"  Imputados nulos en {col} con mediana={mediana:.2f}")
+        print(f"  {col}: nulos imputados con mediana={mediana:.2f}")
 
-# ─────────────────────────────────────────────
-# 6. WINSORIZACIÓN AL PERCENTIL 99
-#    Solo para variables continuas con alta asimetría
-# ─────────────────────────────────────────────
+# =============================================
+# 6. WINSORIZACIÓN p99
+# =============================================
 VARS_WINSORIZACION = ["DS_MORA", "NCUOTAS_VEN", "SABONO_PROM", "SDSBOLSO", "SACTUAL"]
 
 for col in VARS_WINSORIZACION:
@@ -190,26 +177,24 @@ for col in VARS_WINSORIZACION:
     p01 = df_cluster[col].quantile(0.01)
     antes_max = df_cluster[col].max()
     df_cluster[col] = df_cluster[col].clip(lower=p01, upper=p99)
-    print(f"  Winsorización {col}: max {antes_max:,.0f} → {p99:,.0f}")
+    print(f"  {col}: max {antes_max:,.0f} → {p99:,.0f}")
 
-# ─────────────────────────────────────────────
-# 7. ESCALADO — RobustScaler
-# ─────────────────────────────────────────────
-print("\n[6/8] Escalando variables...")
+# =============================================
+# 7. ESCALADO
+# =============================================
+print("\nEscalando variables...")
 
 scaler = RobustScaler()
 X_scaled = scaler.fit_transform(df_cluster[CLUSTER_VARS])
 X_scaled = pd.DataFrame(X_scaled, columns=CLUSTER_VARS)
 
-print(f"  Shape matriz escalada: {X_scaled.shape}")
-print(f"  Media post-escala (debe ser ~0):\n{X_scaled.mean().round(3).to_string()}")
+print(f"  Matriz escalada: {X_scaled.shape}")
 
-# ─────────────────────────────────────────────
-# 8. DETERMINACIÓN DEL NÚMERO ÓPTIMO DE CLÚSTERES
-#    Método del codo + Silhouette Score
-# ─────────────────────────────────────────────
-print("\n[7/8] Determinando número óptimo de clústeres (k=2 a 10)...")
-print("  (esto puede tomar 2-4 minutos con 500k registros)")
+# =============================================
+# 8. SELECCIÓN DE k (k=2 a 10)
+# =============================================
+print("\nEvaluando k=2 a 10...")
+print("  (puede tomar unos minutos)")
 
 K_RANGE = range(2, 11)
 inercias        = []
@@ -217,14 +202,14 @@ silhouettes     = []
 davies_bouldins = []
 calinski_scores = []
 
-# Para silhouette usamos muestra de 30,000 (cálculo exacto es O(n²))
+# Muestra para silhouette (cálculo exacto es O(n²))
 SAMPLE_SIZE = 30_000
 np.random.seed(RANDOM_STATE)
 idx_sample = np.random.choice(len(X_scaled), size=min(SAMPLE_SIZE, len(X_scaled)), replace=False)
 X_sample   = X_scaled.iloc[idx_sample].values
 
 for k in K_RANGE:
-    print(f"  Probando k={k}...", end=" ", flush=True)
+    print(f"  k={k}...", end=" ", flush=True)
     model = MiniBatchKMeans(
         n_clusters   = k,
         random_state = RANDOM_STATE,
@@ -244,9 +229,8 @@ for k in K_RANGE:
     silhouettes.append(sil)
     davies_bouldins.append(db)
     calinski_scores.append(ch)
-    print(f"inercia={inercia:,.0f} | silhouette={sil:.4f} | DB={db:.4f}")
+    print(f"sil={sil:.4f} | DB={db:.4f}")
 
-# Tabla resumen de métricas
 metricas_df = pd.DataFrame({
     "k"                  : list(K_RANGE),
     "inercia"            : inercias,
@@ -257,7 +241,7 @@ metricas_df = pd.DataFrame({
 metricas_df.to_csv(OUTPUT_DIR / "metricas_clustering.csv", index=False)
 print(f"\n{metricas_df.to_string(index=False)}")
 
-# --- Gráfica: Método del codo + Silhouette ---
+# Gráfica: codo + silhouette
 fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
 axes[0].plot(list(K_RANGE), inercias, marker="o", color="#2563EB", linewidth=2)
@@ -273,7 +257,6 @@ axes[1].set_xlabel("Número de clústeres (k)")
 axes[1].set_ylabel("Silhouette Score (mayor es mejor)")
 axes[1].set_xticks(list(K_RANGE))
 
-# Marcar el k óptimo en silhouette
 k_optimo_sil = list(K_RANGE)[np.argmax(silhouettes)]
 axes[1].axvline(x=k_optimo_sil, color="red", linestyle="--", alpha=0.7,
                 label=f"k óptimo = {k_optimo_sil}")
@@ -283,44 +266,36 @@ fig.suptitle("Selección del Número Óptimo de Clústeres", fontsize=13)
 plt.tight_layout()
 plt.savefig(OUTPUT_DIR / "fig06_seleccion_k.png", dpi=150)
 plt.close()
-print(f"\n  → fig06_seleccion_k.png guardado")
-print(f"  → k con mayor silhouette: k={k_optimo_sil}")
+print(f"\n  → fig06_seleccion_k.png")
+print(f"  k con mayor silhouette: {k_optimo_sil}")
 
-# ─────────────────────────────────────────────
-# 9. MODELO FINAL — MiniBatchKMeans
-#    Ajusta K_FINAL después de ver la gráfica
-# ─────────────────────────────────────────────
-print("\n[8/8] Ejecutando modelo final MiniBatchKMeans...")
+# =============================================
+# 9. MODELO FINAL
+# =============================================
+print("\nEjecutando modelo final...")
 
-# K=4 seleccionado por las siguientes razones:
-# 1. Silhouette cae abruptamente de 0.947 (k=4) a 0.677 (k=5) — ruptura estadística clara
-# 2. Davies-Bouldin se mantiene aceptable en k=4 (0.502); desde k=5 supera 0.88
-# 3. k=2 y k=3 tienen métricas superiores pero insuficiente granularidad operativa
-# 4. k=4 es el último k estadísticamente sólido antes de la ruptura en k=5
+# k=4: silhouette 0.947, caída abrupta en k=5 (0.677).
+# k=2/k=3 tienen mejores métricas pero no dan granularidad operativa suficiente.
 K_FINAL = 4
-
-print(f"  K_FINAL seleccionado: {K_FINAL}")
 
 model_final = MiniBatchKMeans(
     n_clusters   = K_FINAL,
     random_state = RANDOM_STATE,
     batch_size   = 10_000,
-    n_init       = 15,      # más inicializaciones para mayor estabilidad
+    n_init       = 15,
     max_iter     = 300,
 )
 model_final.fit(X_scaled)
 df_cluster["cluster"] = model_final.labels_
 
-# Distribución de clientes por clúster
 dist_clusters = df_cluster["cluster"].value_counts().sort_index()
-print(f"\n  Distribución por clúster:\n{dist_clusters.to_string()}")
+print(f"\n  Distribución:\n{dist_clusters.to_string()}")
 
-# ─────────────────────────────────────────────
-# 10. PERFILADO DE CLÚSTERES
-# ─────────────────────────────────────────────
-print("\n  Perfilando clústeres...")
+# =============================================
+# 10. PERFILADO
+# =============================================
+print("\nPerfilando clústeres...")
 
-# Medias en escala ORIGINAL (sin escalar) para interpretabilidad
 vars_perfil = [
     "DS_MORA", "NCUOTAS_VEN", "SABONO_PROM",
     "SDSBOLSO", "SACTUAL", "calf_sbs_nov24",
@@ -330,22 +305,17 @@ perfil = df_cluster.groupby("cluster")[vars_perfil].mean().round(2)
 perfil["n_clientes"] = dist_clusters.values
 perfil["pct_cartera"] = (dist_clusters.values / len(df_cluster) * 100).round(1)
 
-print(f"\n  Perfil de clústeres:\n{perfil.to_string()}")
+print(f"\n{perfil.to_string()}")
 perfil.to_csv(OUTPUT_DIR / "perfil_clusters.csv")
 
-# ─────────────────────────────────────────────
-# 10b. VALIDACIÓN EXTERNA CON BDSBOLSO
-#      Cruzar clústeres con estado operativo del banco
-#      para confirmar validez y demostrar valor añadido
-# ─────────────────────────────────────────────
-print("\n  Validación externa con BDSBOLSO...")
+# --- Validación externa con BDSBOLSO ---
+print("\nValidación con BDSBOLSO...")
 
 estado_por_cluster = (
     df_cluster.groupby(["cluster", "BDSBOLSO"])
     .size()
     .unstack(fill_value=0)
 )
-# Añadir totales y porcentaje dominante
 estado_por_cluster["TOTAL"] = estado_por_cluster.sum(axis=1)
 for col in ["ACT", "CAS", "JUD", "REF"]:
     if col in estado_por_cluster.columns:
@@ -353,22 +323,21 @@ for col in ["ACT", "CAS", "JUD", "REF"]:
             estado_por_cluster[col] / estado_por_cluster["TOTAL"] * 100
         ).round(1)
 
-print(f"\n  Estado crédito por clúster (validación):\n{estado_por_cluster.to_string()}")
+print(f"\n{estado_por_cluster.to_string()}")
 estado_por_cluster.to_csv(OUTPUT_DIR / "estado_credito_por_cluster.csv")
 
-# Índice de pureza: qué % del clúster corresponde al estado dominante
-print("\n  Pureza por clúster (% estado dominante):")
+# Pureza por clúster
+print("\nPureza (% estado dominante):")
 cols_estado = [c for c in ["ACT","CAS","JUD","REF"] if c in estado_por_cluster.columns]
 for idx in estado_por_cluster.index:
     fila = estado_por_cluster.loc[idx, cols_estado]
     estado_dom = fila.idxmax()
     pct_dom = (fila.max() / estado_por_cluster.loc[idx, "TOTAL"] * 100)
-    print(f"  Clúster {idx}: estado dominante = {estado_dom} ({pct_dom:.1f}%)")
+    print(f"  Clúster {idx}: {estado_dom} ({pct_dom:.1f}%)")
 
-# --- Gráfica: heatmap de perfiles ---
+# --- Heatmap de perfiles ---
 fig, ax = plt.subplots(figsize=(11, 5))
 perfil_norm = perfil[vars_perfil].copy()
-# Normalizar cada columna 0-1 para visualización comparada
 for col in perfil_norm.columns:
     rng = perfil_norm[col].max() - perfil_norm[col].min()
     if rng > 0:
@@ -385,12 +354,11 @@ ax.set_ylabel("Variable")
 plt.tight_layout()
 plt.savefig(OUTPUT_DIR / "fig07_perfil_clusters_heatmap.png", dpi=150)
 plt.close()
-print("  → fig07_perfil_clusters_heatmap.png guardado")
+print("  → fig07_perfil_clusters_heatmap.png")
 
-# --- Gráfica: distribución clientes por clúster ---
+# --- Distribución clientes por clúster ---
 fig, ax = plt.subplots(figsize=(8, 4))
-colors = ["#2563EB", "#059669", "#DC2626", "#F59E0B", "#7C3AED",
-          "#0891B2", "#65A30D", "#DB2777", "#EA580C", "#6366F1"]
+colors = ["#2563EB", "#059669", "#DC2626", "#F59E0B"]
 bars = ax.bar(
     [f"Clúster {i}" for i in dist_clusters.index],
     dist_clusters.values,
@@ -403,34 +371,29 @@ ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
 plt.tight_layout()
 plt.savefig(OUTPUT_DIR / "fig08_distribucion_clusters.png", dpi=150)
 plt.close()
-print("  → fig08_distribucion_clusters.png guardado")
+print("  → fig08_distribucion_clusters.png")
 
-# ─────────────────────────────────────────────
-# 11. EXPORTAR RESULTADO FINAL
-#     CSV con CLIENTE + cluster → para BigQuery
-# ─────────────────────────────────────────────
+# =============================================
+# 11. EXPORTAR RESULTADO
+# =============================================
 resultado_final = df_cluster[["CLIENTE", "cluster"]].copy()
 resultado_final["cluster"] = resultado_final["cluster"].astype(int)
 resultado_final.to_csv(OUTPUT_DIR / "resultado_clustering.csv", index=False)
-print(f"\n  → resultado_clustering.csv guardado ({len(resultado_final):,} registros)")
+print(f"\n  → resultado_clustering.csv ({len(resultado_final):,} registros)")
 
-# ─────────────────────────────────────────────
-# 12. MÉTRICAS FINALES DEL MODELO
-# ─────────────────────────────────────────────
+# =============================================
+# MÉTRICAS FINALES
+# =============================================
 sil_final = silhouette_score(X_sample, model_final.labels_[idx_sample],
                               random_state=RANDOM_STATE)
 db_final  = davies_bouldin_score(X_sample, model_final.labels_[idx_sample])
 ch_final  = calinski_harabasz_score(X_sample, model_final.labels_[idx_sample])
 
 print("\n" + "=" * 60)
-print("MÉTRICAS FINALES DEL MODELO")
+print(f"  Algoritmo        : MiniBatchKMeans (k={K_FINAL})")
+print(f"  Silhouette       : {sil_final:.4f}")
+print(f"  Davies-Bouldin   : {db_final:.4f}")
+print(f"  Calinski-Harabasz: {ch_final:,.2f}")
+print(f"  Inercia          : {model_final.inertia_:,.2f}")
+print(f"\n  Outputs en: {OUTPUT_DIR.resolve()}")
 print("=" * 60)
-print(f"  Algoritmo        : MiniBatchKMeans")
-print(f"  k seleccionado   : {K_FINAL}")
-print(f"  Inercia (WCSS)   : {model_final.inertia_:,.2f}")
-print(f"  Silhouette Score : {sil_final:.4f}  (rango -1 a 1, mayor es mejor)")
-print(f"  Davies-Bouldin   : {db_final:.4f}  (menor es mejor)")
-print(f"  Calinski-Harabasz: {ch_final:,.2f}  (mayor es mejor)")
-print(f"\n  Outputs guardados en: {OUTPUT_DIR.resolve()}")
-print("=" * 60)
-print("  Preprocesamiento y clustering completados.")

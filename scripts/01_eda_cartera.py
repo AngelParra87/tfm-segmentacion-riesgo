@@ -1,6 +1,6 @@
 """
-TFM - Segmentación de Clientes con Créditos Activos según Perfil de Riesgo
-Etapa 1: Carga de datos y Análisis Exploratorio (EDA)
+01_eda_cartera.py - Carga de datos y análisis exploratorio
+TFM: Segmentación de Clientes según Perfil de Riesgo
 Autores: Lourdes Flores Mamani / Angel Parra Florecin
 Dataset: grf10_1124_cod.txt (cartera propia) + grf10_1124_rcc.txt (RCC-SBS)
 Periodo: Noviembre 2024
@@ -16,10 +16,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-# ─────────────────────────────────────────────
-# 0. CONFIGURACIÓN DE RUTAS
-# ─────────────────────────────────────────────
-# Ruta de los archivos originales
+# --- Rutas ---
 DATA_DIR = Path(r"C:\ANGEL\UNIR\TFM 2026\Data")
 OUTPUT_DIR = Path(r"C:\ANGEL\UNIR\TFM 2026\Data\outputs\eda")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -27,32 +24,32 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 COD_FILE = DATA_DIR / "grf10_1124_cod.txt"
 RCC_FILE = DATA_DIR / "grf10_1124_rcc.txt"
 
-# Variables clave para clustering (definidas en el TFM)
+# Variables candidatas para clustering
 CLUSTER_VARS = [
-    "DS_MORA",        # días de mora
-    "SVENCIDO",       # saldo vencido
-    "NCUOTAS_VEN",    # número de cuotas vencidas
-    "SJUDICIAL",      # saldo en cobranza judicial
-    "SABONO_PROM",    # abono promedio mensual
-    "SDSBOLSO",       # saldo desembolsado (monto original del crédito)
-    "calf_sbs_nov24", # calificación SBS noviembre 2024
+    "DS_MORA",
+    "SVENCIDO",
+    "NCUOTAS_VEN",
+    "SJUDICIAL",
+    "SABONO_PROM",
+    "SDSBOLSO",
+    "calf_sbs_nov24",
 ]
 
-# ─────────────────────────────────────────────
+# =============================================
 # 1. CARGA DE DATOS
-# ─────────────────────────────────────────────
+# =============================================
 print("=" * 60)
 print("ETAPA 1 — CARGA Y EDA")
 print("=" * 60)
 
-print("\n[1/6] Cargando datasets...")
+print("\nCargando datasets...")
 
 df_cod = pd.read_csv(
     COD_FILE,
     sep=";",
     encoding="latin-1",
     low_memory=False,
-    dtype=str,  # cargar todo como str primero para inspeccionar
+    dtype=str,
 )
 
 df_rcc = pd.read_csv(
@@ -66,10 +63,10 @@ df_rcc = pd.read_csv(
 print(f"  grf10_1124_cod → {df_cod.shape[0]:,} filas × {df_cod.shape[1]} columnas")
 print(f"  grf10_1124_rcc → {df_rcc.shape[0]:,} filas × {df_rcc.shape[1]} columnas")
 
-# ─────────────────────────────────────────────
-# 2. TIPOS Y CONVERSIÓN DE COLUMNAS NUMÉRICAS
-# ─────────────────────────────────────────────
-print("\n[2/6] Convirtiendo columnas numéricas...")
+# =============================================
+# 2. CONVERSIÓN DE COLUMNAS NUMÉRICAS
+# =============================================
+print("\nConvirtiendo columnas numéricas...")
 
 NUMERIC_COLS = [
     "DS_MORA", "SVENCIDO", "NCUOTAS_VEN", "SJUDICIAL",
@@ -85,19 +82,17 @@ for col in NUMERIC_COLS:
     if col in df_cod.columns:
         df_cod[col] = pd.to_numeric(df_cod[col], errors="coerce")
 
-# RCC numéricos
 for col in ["saldo", "COND_DIAS"]:
     if col in df_rcc.columns:
         df_rcc[col] = pd.to_numeric(df_rcc[col], errors="coerce")
 
-# Identificador del cliente — limpiar espacios
 df_cod["CLIENTE"] = df_cod["CLIENTE"].astype(str).str.strip()
 df_rcc["cod_cliente_sbs"] = df_rcc["cod_cliente_sbs"].astype(str).str.strip()
 
-# ─────────────────────────────────────────────
-# 3. REPORTE DE CALIDAD DE DATOS
-# ─────────────────────────────────────────────
-print("\n[3/6] Análisis de calidad de datos...")
+# =============================================
+# 3. CALIDAD DE DATOS
+# =============================================
+print("\nAnálisis de calidad de datos...")
 
 def reporte_calidad(df, nombre):
     total = len(df)
@@ -116,14 +111,13 @@ def reporte_calidad(df, nombre):
 rep_cod = reporte_calidad(df_cod, "grf10_1124_cod")
 rep_rcc = reporte_calidad(df_rcc, "grf10_1124_rcc")
 
-# Guardar reporte en CSV
 rep_cod.to_csv(OUTPUT_DIR / "calidad_cod.csv", index=False)
 rep_rcc.to_csv(OUTPUT_DIR / "calidad_rcc.csv", index=False)
 
-# ─────────────────────────────────────────────
-# 4. ESTADÍSTICAS DESCRIPTIVAS — VARIABLES CLAVE
-# ─────────────────────────────────────────────
-print("\n[4/6] Estadísticas descriptivas de variables clave...")
+# =============================================
+# 4. ESTADÍSTICAS DESCRIPTIVAS
+# =============================================
+print("\nEstadísticas descriptivas...")
 
 vars_numericas = [v for v in CLUSTER_VARS if v in df_cod.columns and v != "calf_sbs_nov24"]
 desc = df_cod[vars_numericas].describe(percentiles=[0.25, 0.5, 0.75, 0.90, 0.95]).T
@@ -131,17 +125,12 @@ desc["coef_variacion"] = (desc["std"] / desc["mean"]).round(2)
 print(desc.round(2).to_string())
 desc.to_csv(OUTPUT_DIR / "estadisticas_descriptivas.csv")
 
-# ─────────────────────────────────────────────
+# =============================================
 # 5. DISTRIBUCIÓN: CALIFICACIÓN SBS
-# ─────────────────────────────────────────────
-print("\n[5/6] Distribución de calificación SBS...")
+# =============================================
+print("\nDistribución de calificación SBS...")
 
 if "calf_sbs_nov24" in df_cod.columns:
-    orden_calif = [
-        "1. NORMAL", "2. CPP", "3. DEFICIENTE",
-        "4. DEFICIENTE", "5. DUDOSO", "6. PERDIDA"
-    ]
-    # Normalizar
     df_cod["calf_sbs_nov24"] = df_cod["calf_sbs_nov24"].astype(str).str.strip()
     calif_counts = df_cod["calf_sbs_nov24"].value_counts().reset_index()
     calif_counts.columns = ["calificacion", "cantidad"]
@@ -149,15 +138,15 @@ if "calf_sbs_nov24" in df_cod.columns:
     print(calif_counts.to_string(index=False))
     calif_counts.to_csv(OUTPUT_DIR / "dist_calificacion_sbs.csv", index=False)
 
-# ─────────────────────────────────────────────
-# 6. VISUALIZACIONES
-# ─────────────────────────────────────────────
-print("\n[6/6] Generando gráficas...")
+# =============================================
+# 6. GRÁFICAS
+# =============================================
+print("\nGenerando gráficas...")
 
 plt.style.use("seaborn-v0_8-whitegrid")
 PALETTE = "#2563EB"
 
-# --- 6a. Distribución calificación SBS (barras) ---
+# 6a. Calificación SBS
 if "calf_sbs_nov24" in df_cod.columns:
     fig, ax = plt.subplots(figsize=(9, 5))
     calif_plot = df_cod["calf_sbs_nov24"].value_counts().sort_index()
@@ -173,11 +162,10 @@ if "calf_sbs_nov24" in df_cod.columns:
     plt.close()
     print("  → fig01_dist_calificacion_sbs.png")
 
-# --- 6b. Distribución días de mora (DS_MORA) ---
+# 6b. Días de mora
 if "DS_MORA" in df_cod.columns:
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-    # Histograma completo
     data_mora = df_cod["DS_MORA"].dropna()
     axes[0].hist(data_mora, bins=60, color=PALETTE, edgecolor="white", alpha=0.85)
     axes[0].set_title("DS_MORA — distribución completa")
@@ -185,7 +173,6 @@ if "DS_MORA" in df_cod.columns:
     axes[0].set_ylabel("Frecuencia")
     axes[0].yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
 
-    # Zoom: 0-365 días
     data_mora_zoom = data_mora[data_mora <= 365]
     axes[1].hist(data_mora_zoom, bins=60, color="#10B981", edgecolor="white", alpha=0.85)
     axes[1].set_title("DS_MORA — zoom 0 a 365 días")
@@ -198,7 +185,7 @@ if "DS_MORA" in df_cod.columns:
     plt.close()
     print("  → fig02_dist_ds_mora.png")
 
-# --- 6c. Boxplots variables financieras clave ---
+# 6c. Boxplots variables financieras (acotadas a p99)
 vars_box = [v for v in ["SVENCIDO", "SDSBOLSO", "SABONO_PROM", "SJUDICIAL"] if v in df_cod.columns]
 if vars_box:
     fig, axes = plt.subplots(1, len(vars_box), figsize=(14, 5))
@@ -207,7 +194,6 @@ if vars_box:
     colors = ["#2563EB", "#7C3AED", "#059669", "#DC2626"]
     for ax, var, color in zip(axes, vars_box, colors):
         data_var = df_cod[var].dropna()
-        # Limitar al percentil 99 para visualización
         p99 = data_var.quantile(0.99)
         ax.boxplot(data_var[data_var <= p99], patch_artist=True,
                    boxprops=dict(facecolor=color, alpha=0.5),
@@ -222,7 +208,7 @@ if vars_box:
     plt.close()
     print("  → fig03_boxplots_vars_financieras.png")
 
-# --- 6d. Mapa de correlación entre variables de clustering ---
+# 6d. Correlación entre variables de clustering
 vars_corr = [v for v in vars_numericas if v in df_cod.columns]
 if len(vars_corr) >= 2:
     corr_matrix = df_cod[vars_corr].corr()
@@ -239,7 +225,7 @@ if len(vars_corr) >= 2:
     plt.close()
     print("  → fig04_correlacion_vars_clustering.png")
 
-# --- 6e. RCC: saldo externo por tipo de crédito ---
+# 6e. RCC: saldo por tipo de crédito
 if "tip_credito_sbs" in df_rcc.columns and "saldo" in df_rcc.columns:
     rcc_tipo = df_rcc.groupby("tip_credito_sbs")["saldo"].agg(["count", "sum", "mean"])
     rcc_tipo.columns = ["n_registros", "saldo_total", "saldo_promedio"]
@@ -256,9 +242,9 @@ if "tip_credito_sbs" in df_rcc.columns and "saldo" in df_rcc.columns:
     plt.close()
     print("  → fig05_rcc_saldo_tipo_credito.png")
 
-# ─────────────────────────────────────────────
-# 7. RESUMEN EJECUTIVO
-# ─────────────────────────────────────────────
+# =============================================
+# RESUMEN
+# =============================================
 print("\n" + "=" * 60)
 print("RESUMEN EDA")
 print("=" * 60)
@@ -280,6 +266,5 @@ if "SJUDICIAL" in df_cod.columns:
     judicial = (df_cod["SJUDICIAL"] > 0).sum()
     print(f"  Clientes con saldo judicial > 0  : {judicial:,} ({judicial/len(df_cod)*100:.1f}%)")
 
-print(f"\n  Outputs guardados en: {OUTPUT_DIR.resolve()}")
+print(f"\n  Outputs en: {OUTPUT_DIR.resolve()}")
 print("=" * 60)
-print("  EDA completado.")
