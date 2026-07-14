@@ -23,11 +23,11 @@ DATASET_ID   = "cartera_riesgo"
 TABLE_ID     = "clientes_segmentados"
 CREDENTIALS  = r"C:\ANGEL\UNIR\gcp_config\gcp_credentials.json"
 
-DATA_DIR     = r"C:\ANGEL\UNIR\TFM 2026\Data"
-OUTPUT_DIR   = r"C:\ANGEL\UNIR\TFM 2026\Data\outputs\clustering"
+DATA_DIR     = r"C:\ANGEL\UNIR\TFM 2026 - v2\Data"
+OUTPUT_DIR   = r"C:\ANGEL\UNIR\TFM 2026 - v2\Data\outputs\clustering"
 
-FILE_COD     = os.path.join(DATA_DIR, "grf10_1124_cod.txt")
-FILE_RCC     = os.path.join(DATA_DIR, "grf10_1124_rcc.txt")
+FILE_COD     = os.path.join(DATA_DIR, "cartera_creditos")
+FILE_RCC     = os.path.join(DATA_DIR, "reporte_crediticio_rcc")
 FILE_CLUSTER = os.path.join(OUTPUT_DIR, "resultado_clustering.csv")
 
 from google.oauth2 import service_account
@@ -38,15 +38,14 @@ credentials = service_account.Credentials.from_service_account_file(CREDENTIALS)
 # ─────────────────────────────────────────────
 print("[1/5] Cargando datasets...")
 
-# --- Dataset principal (cartera propia) ---
 cols_cod = [
-    "CLIENTE", "ATPRESTAMO", "SEXO",
-    "AUNID_EJECT", "ALUGA_EMISI",
-    "SDSBOLSO", "SACTUAL", "NRO_CUOTAS",
-    "NCUOTAS_PAG", "NCUOTAS_VEN", "CUO_PEN_PAGO",
-    "DS_MORA", "SABONO_PROM", "SCUOTA", "STASA",
-    "BDSBOLSO", "FAPERTURA",
-    "calf_sbs_nov24"
+    "Cliente", "Tipo_Prestamo", "Sexo",
+    "Desc_Unidad_Ejecutora", "Desc_Lugar_Emision",
+    "Saldo_Desembolsado", "Saldo_Vigente", "Numero_Cuotas",
+    "Cuotas_Pagadas", "Cuotas_Vencidas", "Cuotas_Pendientes",
+    "Dias_Mora", "Abono_Promedio", "Monto_Cuota", "Tasa_Interes",
+    "Estado_Credito", "Fecha_Apertura",
+    "Calificacion_Sbs"
 ]
 
 df_cod = pd.read_csv(
@@ -55,13 +54,11 @@ df_cod = pd.read_csv(
 )
 print(f"  COD: {len(df_cod):,} registros, {len(df_cod.columns)} columnas")
 
-# --- Dataset RCC (deudas externas) ---
 df_rcc = pd.read_csv(
     FILE_RCC, sep=";", encoding="latin-1", low_memory=False
 )
 print(f"  RCC: {len(df_rcc):,} registros")
 
-# --- Resultados del clustering ---
 df_cluster = pd.read_csv(FILE_CLUSTER)
 print(f"  Clustering: {len(df_cluster):,} registros asignados")
 
@@ -70,38 +67,38 @@ print(f"  Clustering: {len(df_cluster):,} registros asignados")
 # ─────────────────────────────────────────────
 print("\n[2/5] Preparando variables derivadas...")
 
-# --- clasif_rcc_max: peor calificación externa por cliente ---
+# --- Peor_Calificacion_Rcc: peor calificación externa por cliente ---
 df_rcc_max = (
     df_rcc
-    .groupby("cod_cliente_sbs")["CLASIF_EMP"]
+    .groupby("Codigo_Cliente_Sbs")["Calificacion_Entidad"]
     .max()
     .reset_index()
     .rename(columns={
-        "cod_cliente_sbs": "cod_sbs",
-        "CLASIF_EMP": "clasif_rcc_max"
+        "Codigo_Cliente_Sbs": "cod_sbs",
+        "Calificacion_Entidad": "Peor_Calificacion_Rcc"
     })
 )
 
-# Obtener cod_sbs desde el dataset principal para el merge
+# Obtener Codigo_Cliente_Sbs desde el dataset principal para el merge
 df_cod_sbs = pd.read_csv(
     FILE_COD, sep=";", encoding="latin-1",
-    usecols=["CLIENTE", "cod_sbs_nov24"], low_memory=False
+    usecols=["Cliente", "Codigo_Cliente_Sbs"], low_memory=False
 )
-df_cod_sbs = df_cod_sbs.drop_duplicates(subset=["CLIENTE"])
-df_cod_sbs["cod_sbs_nov24"] = df_cod_sbs["cod_sbs_nov24"].astype(str).str.strip()
+df_cod_sbs = df_cod_sbs.drop_duplicates(subset=["Cliente"])
+df_cod_sbs["Codigo_Cliente_Sbs"] = df_cod_sbs["Codigo_Cliente_Sbs"].astype(str).str.strip()
 
-# Merge para obtener clasif_rcc_max por CLIENTE
+# Merge para obtener Peor_Calificacion_Rcc por Cliente
 df_rcc_max["cod_sbs"] = df_rcc_max["cod_sbs"].astype(str).str.strip()
 df_cod_sbs = df_cod_sbs.merge(
     df_rcc_max,
-    left_on="cod_sbs_nov24",
+    left_on="Codigo_Cliente_Sbs",
     right_on="cod_sbs",
     how="left"
 )
-df_clasif = df_cod_sbs[["CLIENTE", "clasif_rcc_max"]].copy()
-df_clasif["clasif_rcc_max"] = df_clasif["clasif_rcc_max"].fillna(0).astype(int)
+df_clasif = df_cod_sbs[["Cliente", "Peor_Calificacion_Rcc"]].copy()
+df_clasif["Peor_Calificacion_Rcc"] = df_clasif["Peor_Calificacion_Rcc"].fillna(0).astype(int)
 
-print(f"  clasif_rcc_max calculada para {len(df_clasif):,} clientes")
+print(f"  Peor_Calificacion_Rcc calculada para {len(df_clasif):,} clientes")
 
 # --- Nombre descriptivo del clúster ---
 map_cluster = {
@@ -123,26 +120,25 @@ map_calf_texto = {
     "1. NO DEFINIDO" : "Normal",
 }
 
-df_cod["calf_sbs_texto"] = (
-    df_cod["calf_sbs_nov24"]
+df_cod["Calificacion_Sbs_Texto"] = (
+    df_cod["Calificacion_Sbs"]
     .astype(str).str.strip()
     .map(map_calf_texto)
     .fillna("Normal")
 )
 
-# Codificación ordinal
 map_calf_num = {
     "Normal": 1, "CPP": 2, "Deficiente": 3,
     "Dudoso": 4, "Pérdida": 5
 }
-df_cod["calf_sbs_cod"] = df_cod["calf_sbs_texto"].map(map_calf_num)
+df_cod["Calificacion_Sbs_Cod"] = df_cod["Calificacion_Sbs_Texto"].map(map_calf_num)
 
 # --- Limpiar campos de texto ---
-df_cod["ATPRESTAMO"]  = df_cod["ATPRESTAMO"].astype(str).str.strip()
-df_cod["AUNID_EJECT"] = df_cod["AUNID_EJECT"].astype(str).str.strip()
-df_cod["ALUGA_EMISI"] = df_cod["ALUGA_EMISI"].astype(str).str.strip()
-df_cod["BDSBOLSO"]    = df_cod["BDSBOLSO"].astype(str).str.strip()
-df_cod["SEXO"]        = df_cod["SEXO"].astype(str).str.strip()
+df_cod["Tipo_Prestamo"]          = df_cod["Tipo_Prestamo"].astype(str).str.strip()
+df_cod["Desc_Unidad_Ejecutora"]  = df_cod["Desc_Unidad_Ejecutora"].astype(str).str.strip()
+df_cod["Desc_Lugar_Emision"]     = df_cod["Desc_Lugar_Emision"].astype(str).str.strip()
+df_cod["Estado_Credito"]         = df_cod["Estado_Credito"].astype(str).str.strip()
+df_cod["Sexo"]                   = df_cod["Sexo"].astype(str).str.strip()
 
 # ─────────────────────────────────────────────
 # 3. MERGE FINAL → TABLA DESNORMALIZADA
@@ -151,33 +147,31 @@ print("\n[3/5] Construyendo tabla desnormalizada...")
 
 df_final = (
     df_cod
-    .merge(df_cluster[["CLIENTE", "cluster", "cluster_nombre"]], on="CLIENTE", how="inner")
-    .merge(df_clasif[["CLIENTE", "clasif_rcc_max"]], on="CLIENTE", how="left")
+    .merge(df_cluster[["Cliente", "cluster", "cluster_nombre"]], on="Cliente", how="inner")
+    .merge(df_clasif[["Cliente", "Peor_Calificacion_Rcc"]], on="Cliente", how="left")
 )
 
-# Selección y orden de columnas para BigQuery
 cols_bq = [
-    "CLIENTE",
+    "Cliente",
     "cluster", "cluster_nombre",
     # Variables de clustering
-    "DS_MORA", "NCUOTAS_VEN", "SABONO_PROM",
-    "SDSBOLSO", "SACTUAL",
-    "calf_sbs_texto", "calf_sbs_cod", "clasif_rcc_max",
+    "Dias_Mora", "Cuotas_Vencidas", "Abono_Promedio",
+    "Saldo_Desembolsado", "Saldo_Vigente",
+    "Calificacion_Sbs_Texto", "Calificacion_Sbs_Cod", "Peor_Calificacion_Rcc",
     # Variable de validación
-    "BDSBOLSO",
+    "Estado_Credito",
     # Contexto del crédito
-    "ATPRESTAMO", "NRO_CUOTAS", "NCUOTAS_PAG",
-    "CUO_PEN_PAGO", "SCUOTA", "STASA", "FAPERTURA",
+    "Tipo_Prestamo", "Numero_Cuotas", "Cuotas_Pagadas",
+    "Cuotas_Pendientes", "Monto_Cuota", "Tasa_Interes", "Fecha_Apertura",
     # Demografía y ubicación
-    "SEXO", "AUNID_EJECT", "ALUGA_EMISI"
+    "Sexo", "Desc_Unidad_Ejecutora", "Desc_Lugar_Emision"
 ]
 
 df_final = df_final[cols_bq].copy()
-df_final["clasif_rcc_max"] = df_final["clasif_rcc_max"].fillna(0).astype(int)
+df_final["Peor_Calificacion_Rcc"] = df_final["Peor_Calificacion_Rcc"].fillna(0).astype(int)
 
 print(f"  Tabla final: {len(df_final):,} registros, {len(df_final.columns)} columnas")
 
-# Guardar CSV local
 csv_local = os.path.join(OUTPUT_DIR, "clientes_segmentados_bq.csv")
 df_final.to_csv(csv_local, index=False, encoding="utf-8")
 print(f"  CSV guardado: {csv_local}")
@@ -208,34 +202,34 @@ job_config = bigquery.LoadJobConfig(
     autodetect=False,
     write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
     schema=[
-        bigquery.SchemaField("CLIENTE",         "INTEGER"),
-        bigquery.SchemaField("cluster",          "INTEGER"),
-        bigquery.SchemaField("cluster_nombre",   "STRING"),
-        bigquery.SchemaField("DS_MORA",          "FLOAT"),
-        bigquery.SchemaField("NCUOTAS_VEN",      "INTEGER"),
-        bigquery.SchemaField("SABONO_PROM",      "FLOAT"),
-        bigquery.SchemaField("SDSBOLSO",         "FLOAT"),
-        bigquery.SchemaField("SACTUAL",          "FLOAT"),
-        bigquery.SchemaField("calf_sbs_texto",   "STRING"),
-        bigquery.SchemaField("calf_sbs_cod",     "INTEGER"),
-        bigquery.SchemaField("clasif_rcc_max",   "INTEGER"),
-        bigquery.SchemaField("BDSBOLSO",         "STRING"),
-        bigquery.SchemaField("ATPRESTAMO",       "STRING"),
-        bigquery.SchemaField("NRO_CUOTAS",       "FLOAT"),
-        bigquery.SchemaField("NCUOTAS_PAG",      "FLOAT"),
-        bigquery.SchemaField("CUO_PEN_PAGO",     "FLOAT"),
-        bigquery.SchemaField("SCUOTA",           "FLOAT"),
-        bigquery.SchemaField("STASA",            "FLOAT"),
-        bigquery.SchemaField("FAPERTURA",        "STRING"),
-        bigquery.SchemaField("SEXO",             "STRING"),
-        bigquery.SchemaField("AUNID_EJECT",      "STRING"),
-        bigquery.SchemaField("ALUGA_EMISI",      "STRING"),
+        bigquery.SchemaField("Cliente",                  "INTEGER"),
+        bigquery.SchemaField("cluster",                  "INTEGER"),
+        bigquery.SchemaField("cluster_nombre",           "STRING"),
+        bigquery.SchemaField("Dias_Mora",                "FLOAT"),
+        bigquery.SchemaField("Cuotas_Vencidas",          "INTEGER"),
+        bigquery.SchemaField("Abono_Promedio",           "FLOAT"),
+        bigquery.SchemaField("Saldo_Desembolsado",       "FLOAT"),
+        bigquery.SchemaField("Saldo_Vigente",            "FLOAT"),
+        bigquery.SchemaField("Calificacion_Sbs_Texto",   "STRING"),
+        bigquery.SchemaField("Calificacion_Sbs_Cod",     "INTEGER"),
+        bigquery.SchemaField("Peor_Calificacion_Rcc",    "INTEGER"),
+        bigquery.SchemaField("Estado_Credito",           "STRING"),
+        bigquery.SchemaField("Tipo_Prestamo",            "STRING"),
+        bigquery.SchemaField("Numero_Cuotas",            "FLOAT"),
+        bigquery.SchemaField("Cuotas_Pagadas",           "FLOAT"),
+        bigquery.SchemaField("Cuotas_Pendientes",        "FLOAT"),
+        bigquery.SchemaField("Monto_Cuota",              "FLOAT"),
+        bigquery.SchemaField("Tasa_Interes",             "FLOAT"),
+        bigquery.SchemaField("Fecha_Apertura",           "STRING"),
+        bigquery.SchemaField("Sexo",                     "STRING"),
+        bigquery.SchemaField("Desc_Unidad_Ejecutora",    "STRING"),
+        bigquery.SchemaField("Desc_Lugar_Emision",       "STRING"),
     ]
 )
 
 uri = f"gs://{BUCKET_NAME}/datos/clientes_segmentados_bq.csv"
 load_job = client_bq.load_table_from_uri(uri, table_ref, job_config=job_config)
-load_job.result()  # espera a que termine
+load_job.result()
 
 table = client_bq.get_table(table_ref)
 print(f"  Tabla cargada: {table_ref}")
