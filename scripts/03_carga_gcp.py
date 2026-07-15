@@ -26,8 +26,8 @@ CREDENTIALS  = r"C:\ANGEL\UNIR\gcp_config\gcp_credentials.json"
 DATA_DIR     = r"C:\ANGEL\UNIR\TFM 2026 - v2\Data"
 OUTPUT_DIR   = r"C:\ANGEL\UNIR\TFM 2026 - v2\Data\outputs\clustering"
 
-FILE_COD     = os.path.join(DATA_DIR, "cartera_creditos")
-FILE_RCC     = os.path.join(DATA_DIR, "reporte_crediticio_rcc")
+FILE_COD     = os.path.join(DATA_DIR, "cartera_creditos.txt")
+FILE_RCC     = os.path.join(DATA_DIR, "reporte_crediticio_rcc.txt")
 FILE_CLUSTER = os.path.join(OUTPUT_DIR, "resultado_clustering.csv")
 
 from google.oauth2 import service_account
@@ -85,7 +85,10 @@ df_cod_sbs = pd.read_csv(
     usecols=["Cliente", "Codigo_Cliente_Sbs"], low_memory=False
 )
 df_cod_sbs = df_cod_sbs.drop_duplicates(subset=["Cliente"])
-df_cod_sbs["Codigo_Cliente_Sbs"] = df_cod_sbs["Codigo_Cliente_Sbs"].astype(str).str.strip()
+df_cod_sbs = df_cod_sbs[df_cod_sbs["Codigo_Cliente_Sbs"].notna()]  # excluir los 53 nulos
+df_cod_sbs["Codigo_Cliente_Sbs"] = df_cod_sbs["Codigo_Cliente_Sbs"].astype(float).astype(int).astype(str).str.strip()
+df_rcc_max["cod_sbs"] = df_rcc_max["cod_sbs"].astype(str).str.strip()
+
 
 # Merge para obtener Peor_Calificacion_Rcc por Cliente
 df_rcc_max["cod_sbs"] = df_rcc_max["cod_sbs"].astype(str).str.strip()
@@ -97,6 +100,7 @@ df_cod_sbs = df_cod_sbs.merge(
 )
 df_clasif = df_cod_sbs[["Cliente", "Peor_Calificacion_Rcc"]].copy()
 df_clasif["Peor_Calificacion_Rcc"] = df_clasif["Peor_Calificacion_Rcc"].fillna(0).astype(int)
+df_clasif = df_clasif.drop_duplicates(subset=["Cliente"])  # evita duplicados por NaN en Codigo_Cliente_Sbs
 
 print(f"  Peor_Calificacion_Rcc calculada para {len(df_clasif):,} clientes")
 
@@ -145,12 +149,31 @@ df_cod["Sexo"]                   = df_cod["Sexo"].astype(str).str.strip()
 # ─────────────────────────────────────────────
 print("\n[3/5] Construyendo tabla desnormalizada...")
 
-df_final = (
-    df_cod
-    .merge(df_cluster[["Cliente", "cluster", "cluster_nombre"]], on="Cliente", how="inner")
-    .merge(df_clasif[["Cliente", "Peor_Calificacion_Rcc"]], on="Cliente", how="left")
-)
+# El cluster se asigna por posición de fila, no por Cliente único
+# df_cod y df_cluster tienen exactamente 597,127 filas en el mismo orden
+df_cod = df_cod.reset_index(drop=True)
+df_cluster = df_cluster.reset_index(drop=True)
 
+df_final = df_cod.copy()
+df_final["cluster"]        = df_cluster["cluster"]
+df_final["cluster_nombre"] = df_cluster["cluster_nombre"]
+
+# Merge de Peor_Calificacion_Rcc por Cliente (left para no perder filas)
+df_final = df_final.merge(
+    df_clasif[["Cliente", "Peor_Calificacion_Rcc"]],
+    on="Cliente", how="left"
+)
+df_cod = df_cod.reset_index(drop=True)
+df_cluster = df_cluster.reset_index(drop=True)
+
+df_final = df_cod.copy()
+df_final["cluster"]        = df_cluster["cluster"]
+df_final["cluster_nombre"] = df_cluster["cluster_nombre"]
+
+df_final = df_final.merge(
+    df_clasif[["Cliente", "Peor_Calificacion_Rcc"]],
+    on="Cliente", how="left"
+)
 cols_bq = [
     "Cliente",
     "cluster", "cluster_nombre",
