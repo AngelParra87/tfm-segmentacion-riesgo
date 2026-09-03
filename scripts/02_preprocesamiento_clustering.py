@@ -9,6 +9,10 @@ variables del modelo y evalúa MiniBatchKMeans para k=2 a k=10. El modelo final
 utiliza k=4. Las métricas internas se calculan sobre una muestra fija de
 30.000 operaciones, mientras que la inercia corresponde al ajuste sobre la
 cartera completa. Estado_Credito se reserva para la validación externa.
+
+Al final del script se regeneran las figuras definitivas utilizadas en la
+memoria y se documenta visualmente la comparación complementaria con DBSCAN
+a partir de los resultados validados del experimento descrito en la sección 5.4.3.
 """
 
 from pathlib import Path
@@ -685,4 +689,573 @@ print(f"  Clientes únicos con RCC : {clientes_con_rcc:,}")
 print(f"  Cobertura cliente       : {pct_clientes_rcc:.2f}%")
 print(f"  Outputs                 : {OUTPUT_DIR.resolve()}")
 print("=" * 72)
-print("Preprocesamiento y clustering completados.")
+print("Preprocesamiento y clustering completados. Generando figuras finales...")
+
+
+# ============================================================
+# 13. FIGURAS FINALES Y COMPARACIÓN DOCUMENTADA CON DBSCAN
+# ============================================================
+# Durante el desarrollo estas visualizaciones se generaron en un script auxiliar
+# de rediseño. Se integran aquí para que el repositorio final conserve únicamente
+# tres scripts principales.
+#
+# Importante: las Figuras 14 y 15 utilizan los resultados validados del
+# experimento DBSCAN descrito en la memoria (muestra = 50.000, semilla = 42,
+# winsorización P99 y StandardScaler). Este bloque regenera sus visualizaciones;
+# no vuelve a ejecutar la búsqueda completa de hiperparámetros DBSCAN.
+
+METRICAS_FILE = OUTPUT_DIR / "metricas_clustering.csv"
+PERFIL_FILE = OUTPUT_DIR / "perfil_clusters.csv"
+
+MAP_CLUSTER = {
+    0: "Cartera en Riesgo",
+    1: "Cartera Vigente",
+    2: "Cartera Castigada",
+    3: "Cartera Judicial",
+}
+
+ORDEN_SEGMENTOS = [
+    "Cartera Vigente",
+    "Cartera en Riesgo",
+    "Cartera Judicial",
+    "Cartera Castigada",
+]
+
+COLORES_SEGMENTOS = {
+    "Cartera Vigente": "#2E7D32",
+    "Cartera en Riesgo": "#F59E0B",
+    "Cartera Judicial": "#C62828",
+    "Cartera Castigada": "#4B5563",
+}
+
+COLOR_TEXTO = "#1F2937"
+COLOR_NEUTRO = "#94A3B8"
+COLOR_ACENTO = "#2563EB"
+COLOR_REJILLA = "#E5E7EB"
+
+plt.rcParams.update(
+    {
+        "figure.facecolor": "white",
+        "axes.facecolor": "white",
+        "axes.edgecolor": "#D1D5DB",
+        "axes.labelcolor": COLOR_TEXTO,
+        "axes.titlecolor": COLOR_TEXTO,
+        "xtick.color": COLOR_TEXTO,
+        "ytick.color": COLOR_TEXTO,
+        "text.color": COLOR_TEXTO,
+        "font.size": 10,
+        "axes.titlesize": 12,
+        "axes.titleweight": "semibold",
+    }
+)
+
+
+def verificar_archivo(ruta: Path) -> None:
+    if not ruta.exists():
+        raise FileNotFoundError(
+            f"No se encontró {ruta}. Ejecute primero 02_preprocesamiento_clustering.py."
+        )
+
+
+def limpiar_ejes(ax: plt.Axes, grid_axis: str | None = None) -> None:
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color("#D1D5DB")
+    ax.spines["bottom"].set_color("#D1D5DB")
+
+    if grid_axis:
+        ax.grid(
+            True,
+            axis=grid_axis,
+            color=COLOR_REJILLA,
+            linewidth=0.8,
+            alpha=0.8,
+        )
+        ax.set_axisbelow(True)
+    else:
+        ax.grid(False)
+
+
+def guardar_figura(fig: plt.Figure, nombre: str) -> None:
+    fig.savefig(
+        OUTPUT_DIR / nombre,
+        dpi=300,
+        bbox_inches="tight",
+        facecolor="white",
+    )
+    plt.close(fig)
+    print(f"  -> {nombre}")
+
+
+def nombre_variable(var: str) -> str:
+    return {
+        "Dias_Mora": "Días de mora",
+        "Cuotas_Vencidas": "Cuotas vencidas",
+        "Abono_Promedio": "Abono promedio",
+        "Saldo_Desembolsado": "Saldo desembolsado",
+        "Saldo_Vigente": "Saldo vigente",
+        "Calificacion_Sbs": "Calificación SBS",
+        "Peor_Calificacion_Rcc": "Peor calificación RCC",
+    }.get(var, var.replace("_", " "))
+
+
+def formatear_valor(var: str, valor: float) -> str:
+    if pd.isna(valor):
+        return "—"
+
+    if var == "Dias_Mora":
+        return f"{valor:,.1f}"
+    if var == "Cuotas_Vencidas":
+        return f"{valor:,.2f}"
+    if var in {"Abono_Promedio", "Saldo_Desembolsado", "Saldo_Vigente"}:
+        return f"{valor:,.0f}"
+    if var in {"Calificacion_Sbs", "Peor_Calificacion_Rcc"}:
+        return f"{valor:,.2f}"
+    return f"{valor:,.2f}"
+
+
+for archivo in [METRICAS_FILE, PERFIL_FILE]:
+    verificar_archivo(archivo)
+
+metricas = pd.read_csv(METRICAS_FILE)
+perfil = pd.read_csv(PERFIL_FILE)
+
+if "cluster" not in perfil.columns:
+    # Cuando el CSV se guardó con el índice, pandas suele recuperarlo como
+    # primera columna sin nombre.
+    primera = perfil.columns[0]
+    perfil = perfil.rename(columns={primera: "cluster"})
+
+perfil["cluster"] = pd.to_numeric(perfil["cluster"], errors="raise").astype(int)
+perfil["segmento"] = perfil["cluster"].map(MAP_CLUSTER)
+
+if perfil["segmento"].isna().any():
+    raise ValueError("Se encontraron identificadores de clúster no contemplados en MAP_CLUSTER.")
+
+
+# ============================================================
+# FIGURA 06 — EVOLUCIÓN DE MÉTRICAS PARA SELECCIÓN DE k
+# ============================================================
+
+columnas_requeridas = [
+    "k",
+    "inercia",
+    "silhouette",
+    "davies_bouldin",
+    "calinski_harabasz",
+]
+faltantes = [c for c in columnas_requeridas if c not in metricas.columns]
+if faltantes:
+    raise KeyError("Faltan columnas en metricas_clustering.csv: " + ", ".join(faltantes))
+
+metricas = metricas.sort_values("k").reset_index(drop=True)
+
+fig, axes = plt.subplots(2, 2, figsize=(12.5, 8.2))
+axes = axes.ravel()
+
+series = [
+    ("inercia", "Inercia", "Menor indica mayor compactación", "{:,.0f}"),
+    ("silhouette", "Índice de silueta", "Mayor es mejor", "{:.4f}"),
+    ("davies_bouldin", "Davies-Bouldin", "Menor es mejor", "{:.4f}"),
+    ("calinski_harabasz", "Calinski-Harabasz", "Mayor es mejor", "{:,.0f}"),
+]
+
+for ax, (col, titulo, subtitulo, formato) in zip(axes, series):
+    ax.plot(
+        metricas["k"],
+        metricas[col],
+        color=COLOR_NEUTRO,
+        linewidth=2,
+        marker="o",
+        markersize=5,
+        markerfacecolor="white",
+        markeredgecolor=COLOR_NEUTRO,
+    )
+
+    seleccionado = metricas.loc[metricas["k"] == K_FINAL]
+    if not seleccionado.empty:
+        x = float(seleccionado["k"].iloc[0])
+        y = float(seleccionado[col].iloc[0])
+
+        ax.scatter(
+            [x],
+            [y],
+            s=90,
+            color=COLOR_ACENTO,
+            edgecolor="white",
+            linewidth=1.2,
+            zorder=4,
+        )
+        ax.annotate(
+            f"k = {K_FINAL}\n{formato.format(y)}",
+            xy=(x, y),
+            xytext=(8, 8),
+            textcoords="offset points",
+            fontsize=8.5,
+            color=COLOR_ACENTO,
+            ha="left",
+            va="bottom",
+        )
+
+    ax.set_title(f"{titulo}\n{subtitulo}", loc="left", fontsize=10.5, pad=10)
+    ax.set_xlabel("Número de clústeres (k)")
+    ax.set_xticks(metricas["k"].astype(int).tolist())
+    limpiar_ejes(ax, grid_axis="y")
+
+axes[0].yaxis.set_major_formatter(
+    mticker.FuncFormatter(lambda x, _: f"{x:,.0f}")
+)
+axes[3].yaxis.set_major_formatter(
+    mticker.FuncFormatter(lambda x, _: f"{x:,.0f}")
+)
+
+fig.suptitle(
+    "k = 4 equilibra calidad interna y mayor granularidad de segmentación",
+    x=0.06,
+    ha="left",
+    fontsize=13,
+    fontweight="semibold",
+)
+fig.text(
+    0.06,
+    0.955,
+    "El punto azul identifica la configuración seleccionada; no representa el óptimo individual de todas las métricas.",
+    ha="left",
+    va="top",
+    fontsize=9,
+    color="#475569",
+)
+
+fig.tight_layout(rect=[0, 0, 1, 0.92])
+guardar_figura(fig, "fig06_seleccion_k.png")
+
+
+# ============================================================
+# FIGURA 07 — PERFIL NORMALIZADO POR SEGMENTO
+# ============================================================
+
+vars_perfil = [
+    "Dias_Mora",
+    "Cuotas_Vencidas",
+    "Abono_Promedio",
+    "Saldo_Desembolsado",
+    "Saldo_Vigente",
+    "Calificacion_Sbs",
+    "Peor_Calificacion_Rcc",
+]
+vars_perfil = [v for v in vars_perfil if v in perfil.columns]
+
+perfil_orden = (
+    perfil.set_index("segmento")
+    .reindex(ORDEN_SEGMENTOS)
+)
+
+valores = perfil_orden[vars_perfil].T.astype(float)
+
+normalizado = valores.copy()
+for idx in normalizado.index:
+    minimo = normalizado.loc[idx].min()
+    maximo = normalizado.loc[idx].max()
+    rango = maximo - minimo
+    if rango > 0:
+        normalizado.loc[idx] = (normalizado.loc[idx] - minimo) / rango
+    else:
+        normalizado.loc[idx] = 0.0
+
+anotaciones = pd.DataFrame(
+    index=vars_perfil,
+    columns=ORDEN_SEGMENTOS,
+    dtype=object,
+)
+for var in vars_perfil:
+    for segmento in ORDEN_SEGMENTOS:
+        anotaciones.loc[var, segmento] = formatear_valor(
+            var,
+            float(valores.loc[var, segmento]),
+        )
+
+normalizado.index = [nombre_variable(v) for v in normalizado.index]
+anotaciones.index = [nombre_variable(v) for v in anotaciones.index]
+
+fig, ax = plt.subplots(figsize=(10.8, 6.4))
+
+sns.heatmap(
+    normalizado,
+    annot=anotaciones,
+    fmt="",
+    cmap="Blues",
+    vmin=0,
+    vmax=1,
+    linewidths=0.8,
+    linecolor="white",
+    cbar_kws={
+        "shrink": 0.75,
+        "label": "Magnitud relativa dentro de cada variable (0–1)",
+    },
+    annot_kws={"fontsize": 8.5},
+    ax=ax,
+)
+
+ax.set_title(
+    "Los cuatro segmentos presentan perfiles financieros claramente diferenciados",
+    loc="left",
+    pad=12,
+)
+ax.set_xlabel("")
+ax.set_ylabel("")
+ax.tick_params(axis="x", rotation=0)
+ax.tick_params(axis="y", rotation=0)
+
+fig.text(
+    0.125,
+    0.025,
+    "El color compara magnitudes relativas dentro de cada variable; las cifras muestran los valores promedio originales.",
+    fontsize=8.5,
+    color="#475569",
+)
+
+fig.tight_layout(rect=[0, 0.05, 1, 1])
+guardar_figura(fig, "fig07_perfil_clusters_heatmap.png")
+
+
+# ============================================================
+# FIGURA 08 — DISTRIBUCIÓN DE CRÉDITOS ACTIVOS POR SEGMENTO
+# ============================================================
+
+if "n_creditos" not in perfil.columns:
+    raise KeyError("perfil_clusters.csv no contiene la columna n_creditos.")
+
+dist = (
+    perfil[["segmento", "n_creditos"]]
+    .copy()
+    .set_index("segmento")
+    .reindex(ORDEN_SEGMENTOS)
+    .reset_index()
+)
+
+dist["n_creditos"] = pd.to_numeric(dist["n_creditos"], errors="raise")
+dist["pct"] = dist["n_creditos"] / dist["n_creditos"].sum() * 100
+
+fig, ax = plt.subplots(figsize=(10.2, 5.2))
+
+bars = ax.barh(
+    dist["segmento"][::-1],
+    dist["pct"][::-1],
+    color=[COLORES_SEGMENTOS[s] for s in dist["segmento"][::-1]],
+    edgecolor="none",
+)
+
+max_pct = max(dist["pct"].max(), 1)
+ax.set_xlim(0, min(100, max_pct * 1.09))
+
+for bar, pct, n in zip(
+    bars,
+    dist["pct"][::-1],
+    dist["n_creditos"][::-1],
+):
+    ax.text(
+        min(bar.get_width() + 0.7, 99.2),
+        bar.get_y() + bar.get_height() / 2,
+        f"{pct:.2f} %  ·  {int(n):,}",
+        va="center",
+        ha="left",
+        fontsize=9,
+    )
+
+vigente = dist.loc[dist["segmento"] == "Cartera Vigente", "pct"]
+if not vigente.empty:
+    titulo = f"Cartera Vigente concentra el {float(vigente.iloc[0]):.2f} % de los créditos activos"
+else:
+    titulo = "Distribución de créditos activos por segmento"
+
+ax.set_title(titulo, loc="left", pad=12)
+ax.set_xlabel("Participación en la cartera (%)")
+ax.set_ylabel("")
+ax.xaxis.set_major_formatter(
+    mticker.FuncFormatter(lambda x, _: f"{x:.0f} %")
+)
+limpiar_ejes(ax, grid_axis="x")
+
+fig.tight_layout()
+guardar_figura(fig, "fig08_distribucion_clusters.png")
+
+
+# ============================================================
+# FIGURA 14 — DISTRIBUCIÓN DE LA SOLUCIÓN DBSCAN
+# ============================================================
+# Valores documentados en la comparación metodológica del TFM
+# para eps = 1.0, min_samples = 50 y muestra = 50,000.
+# Se utilizan porcentajes consolidados para comunicar el desbalance
+# sin reconstruir el experimento DBSCAN en este script de visualización.
+
+dbscan_dist = pd.DataFrame(
+    {
+        "grupo": [
+            "Clúster principal",
+            "Clúster secundario",
+            "Ruido",
+        ],
+        "pct": [97.5, 1.4, 1.1],
+    }
+)
+
+fig, ax = plt.subplots(figsize=(9.8, 4.8))
+
+colores_dbscan = [
+    COLOR_ACENTO,
+    COLOR_NEUTRO,
+    "#9CA3AF",
+]
+
+bars = ax.barh(
+    dbscan_dist["grupo"][::-1],
+    dbscan_dist["pct"][::-1],
+    color=colores_dbscan[::-1],
+    edgecolor="none",
+)
+
+ax.set_xlim(0, 100)
+
+for bar, pct in zip(bars, dbscan_dist["pct"][::-1]):
+    ax.text(
+        min(bar.get_width() + 1.0, 99.0),
+        bar.get_y() + bar.get_height() / 2,
+        f"{pct:.1f} %",
+        va="center",
+        ha="left",
+        fontsize=9.5,
+    )
+
+ax.set_title(
+    "DBSCAN concentra el 97.5 % de la muestra en un único clúster",
+    loc="left",
+    pad=12,
+)
+ax.set_xlabel("Participación en la muestra (%)")
+ax.set_ylabel("")
+ax.xaxis.set_major_formatter(
+    mticker.FuncFormatter(lambda x, _: f"{x:.0f} %")
+)
+limpiar_ejes(ax, grid_axis="x")
+
+fig.text(
+    0.125,
+    0.015,
+    "Configuración: eps = 1.0, min_samples = 50; muestra = 50,000 registros.",
+    fontsize=8.4,
+    color="#475569",
+)
+
+fig.tight_layout(rect=[0, 0.045, 1, 1])
+guardar_figura(fig, "fig_dbscan_distribucion.png")
+
+
+# ============================================================
+# FIGURA 15 — COMPARACIÓN DE MÉTRICAS INTERNAS
+# ============================================================
+# Comparación controlada sobre la misma muestra de 50,000 registros
+# y el mismo preprocesamiento. Se muestran los valores originales
+# en paneles separados para evitar mezclar escalas incompatibles.
+
+comparacion = {
+    "Índice de silueta": {
+        "MiniBatchKMeans": 0.479,
+        "DBSCAN": 0.735,
+        "mejor": "DBSCAN",
+        "criterio": "Mayor es mejor",
+        "formato": "{:.3f}",
+    },
+    "Davies-Bouldin": {
+        "MiniBatchKMeans": 0.823,
+        "DBSCAN": 0.423,
+        "mejor": "DBSCAN",
+        "criterio": "Menor es mejor",
+        "formato": "{:.3f}",
+    },
+    "Calinski-Harabasz": {
+        "MiniBatchKMeans": 30_642,
+        "DBSCAN": 12_213,
+        "mejor": "MiniBatchKMeans",
+        "criterio": "Mayor es mejor",
+        "formato": "{:,.0f}",
+    },
+}
+
+fig, axes = plt.subplots(1, 3, figsize=(13.2, 4.7))
+
+for ax, (metrica, datos) in zip(axes, comparacion.items()):
+    algoritmos = ["MiniBatchKMeans", "DBSCAN"]
+    valores = [datos[a] for a in algoritmos]
+
+    colores = [
+        COLOR_ACENTO if a == datos["mejor"] else COLOR_NEUTRO
+        for a in algoritmos
+    ]
+
+    bars = ax.barh(
+        algoritmos[::-1],
+        valores[::-1],
+        color=colores[::-1],
+        edgecolor="none",
+    )
+
+    max_val = max(valores)
+    ax.set_xlim(0, max_val * 1.28 if max_val > 0 else 1)
+
+    for bar, algoritmo, valor in zip(
+        bars,
+        algoritmos[::-1],
+        valores[::-1],
+    ):
+        ax.text(
+            bar.get_width() + max_val * 0.025,
+            bar.get_y() + bar.get_height() / 2,
+            datos["formato"].format(valor),
+            va="center",
+            ha="left",
+            fontsize=9,
+            color=COLOR_TEXTO,
+        )
+
+    ax.set_title(
+        f"{metrica}\n{datos['criterio']}",
+        loc="left",
+        fontsize=10.5,
+        pad=10,
+    )
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+    limpiar_ejes(ax, grid_axis="x")
+
+    if metrica == "Calinski-Harabasz":
+        ax.xaxis.set_major_formatter(
+            mticker.FuncFormatter(lambda x, _: f"{x:,.0f}")
+        )
+    else:
+        ax.xaxis.set_major_formatter(
+            mticker.FuncFormatter(lambda x, _: f"{x:.2f}")
+        )
+
+fig.suptitle(
+    "DBSCAN lidera dos métricas internas; MiniBatchKMeans obtiene mayor Calinski-Harabasz",
+    x=0.045,
+    ha="left",
+    fontsize=13,
+    fontweight="semibold",
+)
+
+fig.text(
+    0.045,
+    0.02,
+    "Comparación sobre la misma muestra de 50,000 registros y el mismo preprocesamiento. "
+    "El color destaca el mejor resultado de cada métrica.",
+    fontsize=8.4,
+    color="#475569",
+)
+
+fig.tight_layout(rect=[0, 0.055, 1, 0.90])
+guardar_figura(fig, "fig_comparacion_metricas.png")
+
+
+print("\nFiguras finales de clustering y comparación DBSCAN completadas.")
+print(f"Outputs: {OUTPUT_DIR.resolve()}")
